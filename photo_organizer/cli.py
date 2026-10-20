@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .faces import DEFAULT_MODEL_DIR, DEFAULT_THRESHOLD, FaceMatcher
 from .images import IMAGE_EXTENSIONS, find_images, load_image
+from .local_titles import DEFAULT_LOCAL_MODEL, DEFAULT_OLLAMA_URL, LocalTitleGenerator, OllamaError
 from .organize import organize
 from .titles import DEFAULT_MODEL, TitleGenerator
 
@@ -31,8 +32,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--move", action="store_true", help="コピーではなく移動する")
     p.add_argument("--dry-run", action="store_true", help="実際には保存せず、結果だけ表示する")
     p.add_argument("--no-title", action="store_true", help="AI によるタイトル付けをしない")
-    p.add_argument("--model", default=DEFAULT_MODEL, help=f"タイトル作成に使う Claude モデル (既定 {DEFAULT_MODEL})")
-    p.add_argument("--workers", type=int, default=4, help="タイトル作成の同時実行数 (既定 4)")
+    p.add_argument(
+        "--free", action="store_true",
+        help="無料版: パソコン内の AI（Ollama）でタイトルを作る。API キー不要",
+    )
+    p.add_argument(
+        "--model",
+        help=f"タイトル作成に使うモデル (既定: 通常 {DEFAULT_MODEL} / --free 時 {DEFAULT_LOCAL_MODEL})",
+    )
+    p.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL, help=f"Ollama の URL (既定 {DEFAULT_OLLAMA_URL})")
+    p.add_argument("--workers", type=int, help="タイトル作成の同時実行数 (既定: 通常 4 / --free 時 1)")
     p.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR, help="顔認識モデルの保存先")
     return p
 
@@ -57,10 +66,21 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     titler = None
-    if not args.no_title:
+    workers = args.workers or (1 if args.free else 4)
+    if args.no_title:
+        pass
+    elif args.free:
+        titler = LocalTitleGenerator(model=args.model or DEFAULT_LOCAL_MODEL, url=args.ollama_url)
+        try:
+            titler.check()
+        except OllamaError as e:
+            print(e, file=sys.stderr)
+            return 1
+        print(f"無料版: パソコン内の AI ({titler.model}) でタイトルを作成します")
+    else:
         if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
             print("注意: ANTHROPIC_API_KEY が未設定です。ログイン済みプロファイルが無い場合は失敗します。")
-        titler = TitleGenerator(model=args.model)
+        titler = TitleGenerator(model=args.model or DEFAULT_MODEL)
 
     matcher = FaceMatcher(model_dir=args.model_dir, threshold=args.threshold)
     registered = 0
@@ -76,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
 
     records = organize(
         args.input, args.output, matcher, titler,
-        move=args.move, dry_run=args.dry_run, workers=args.workers,
+        move=args.move, dry_run=args.dry_run, workers=workers,
     )
 
     months = sorted({r.taken.strftime("%Y-%m") for r in records})

@@ -43,9 +43,9 @@ class TitleResult:
     description: str
 
 
-def encode_image(image: Image.Image) -> str:
+def encode_image(image: Image.Image, max_side: int = MAX_SIDE) -> str:
     img = image.convert("RGB")
-    img.thumbnail((MAX_SIDE, MAX_SIDE))
+    img.thumbnail((max_side, max_side))
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
     return base64.standard_b64encode(buf.getvalue()).decode("ascii")
