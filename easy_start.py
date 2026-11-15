@@ -176,6 +176,19 @@ def choose_folder(title: str, must_exist: bool = True) -> Path | None:
         return Path(text) if text else None
 
 
+def check_battery() -> bool:
+    """バッテリーで動いているときは、電源につなぐよう勧める。続けるなら True。"""
+    from photo_organizer.power import battery_status
+
+    status = battery_status()
+    if status is None or status[1]:
+        return True
+    print(f"\n※ いまバッテリーだけで動いています（残量 {status[0]}%）。")
+    print("  AI の処理はバッテリーを多く使います。電源アダプターにつなぐのがおすすめです。")
+    print("  残量が 20% 以下になったら自動で一時停止し、次回は続きから再開します。")
+    return ask_yes("このまま続けますか？")
+
+
 def run_organizer(args: list[str]) -> int:
     return subprocess.run(
         [sys.executable, "-m", "photo_organizer", *args], cwd=HERE
@@ -223,6 +236,9 @@ def main() -> int:
         print("フォルダが選ばれなかったので終了します。")
         return 1
 
+    if not check_battery():
+        return 0
+
     # 電源が不安定なパソコンでも止まりにくいよう、省電力モードで動かす
     args = [str(photos), str(output), "--ref", str(ref), "--free", "--eco"]
     print("\nまず、保存せずに同じ人物の写真がどれかを確認します（お試し実行・タイトルなし）。\n")
@@ -237,7 +253,7 @@ def main() -> int:
     print("途中で止まったり電源が切れたりしても、もう一度実行すれば続きから再開します。\n")
     code = run_organizer(args)
     if code == 0:
-        print(f"\n完了しました。保存先: {output}")
+        print(f"\n保存先: {output}")
         if IS_WINDOWS:
             os.startfile(output)  # 保存先フォルダを開く
         elif IS_MAC:

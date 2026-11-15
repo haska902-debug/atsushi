@@ -65,6 +65,7 @@ def organize(
     dry_run: bool = False,
     workers: int = 4,
     rest: float = 0.0,
+    stop_check: Callable[[], str | None] | None = None,
     log: Callable[[str], None] = print,
 ) -> list[PhotoRecord]:
     """写真を整理する。
@@ -72,7 +73,19 @@ def organize(
     1 枚ごとにすぐ保存して整理結果.csv に記録するので、途中で止まっても
     もう一度実行すれば、記録済みの写真は飛ばして続きから再開する。
     rest は 1 枚ごとに休む秒数（パソコンの負荷を下げるため）。
+    stop_check は 1 枚ごとに呼ばれ、理由の文字列を返したらそこで安全に止める
+    （バッテリー残量が少なくなったときなど）。
     """
+    stopped: list[str] = []
+
+    def should_stop() -> bool:
+        if not stopped and stop_check is not None:
+            reason = stop_check()
+            if reason:
+                stopped.append(reason)
+                log(reason)
+        return bool(stopped)
+
     index_path = output_dir / INDEX_FILENAME
     done = load_done_sources(index_path)
     images = [p for p in find_images(input_dir, exclude=output_dir) if str(p) not in done]
@@ -83,6 +96,8 @@ def organize(
     # 1. 同じ人物が写っている写真を選ぶ
     matched: list[PhotoRecord] = []
     for i, path in enumerate(images, 1):
+        if i % 20 == 0 and should_stop():
+            return []
         try:
             score = matcher.similarity(load_image(path))
         except Exception as e:  # 壊れた画像などは飛ばして続ける
@@ -109,6 +124,8 @@ def organize(
 
     def process(numbered: tuple[int, PhotoRecord]) -> None:
         n, record = numbered
+        if should_stop():
+            return
         if titler is not None:
             try:
                 result = titler.generate(load_image(record.source))
@@ -140,7 +157,7 @@ def organize(
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(process, enumerate(matched, 1)))
-    return matched
+    return [r for r in matched if r.dest is not None]
 
 
 def load_done_sources(path: Path) -> set[str]:

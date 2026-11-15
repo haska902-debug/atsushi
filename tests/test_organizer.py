@@ -168,3 +168,26 @@ def test_resume_after_interruption(tmp_path):
     assert len(list(out.rglob("*.jpg"))) == 3
     index = (out / INDEX_FILENAME).read_text(encoding="utf-8-sig")
     assert index.count("撮影日時") == 1 and len(index.strip().splitlines()) == 4
+
+
+def test_stop_check_pauses_safely(tmp_path):
+    src, out = tmp_path / "in", tmp_path / "out"
+    for i in range(3):
+        make_photo(src / f"{i}.jpg", "red", f"2024:01:0{i + 1} 10:00:00")
+    calls = iter([None, "残量が少ないので停止"])
+    records = organize(src, out, ColorMatcher(), FakeTitler(), workers=1,
+                       stop_check=lambda: next(calls, None), log=lambda _: None)
+    assert len(records) == 1
+    assert len(list(out.rglob("*.jpg"))) == 1
+    # 充電後にもう一度実行すると残りが整理される
+    records = organize(src, out, ColorMatcher(), FakeTitler(), workers=1, log=lambda _: None)
+    assert len(records) == 2
+
+
+def test_parse_pmset():
+    from photo_organizer.power import parse_pmset
+
+    on_battery = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t15%; discharging;"
+    assert parse_pmset(on_battery) == (15, False)
+    assert parse_pmset("Now drawing from 'AC Power'\n -InternalBattery-0\t80%; charging") == (80, True)
+    assert parse_pmset("Now drawing from 'AC Power'") is None

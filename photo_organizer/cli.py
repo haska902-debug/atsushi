@@ -13,6 +13,7 @@ from .faces import DEFAULT_MODEL_DIR, DEFAULT_THRESHOLD, FaceMatcher
 from .images import IMAGE_EXTENSIONS, find_images, load_image
 from .local_titles import DEFAULT_LOCAL_MODEL, DEFAULT_OLLAMA_URL, LocalTitleGenerator, OllamaError
 from .organize import organize
+from .power import DEFAULT_BATTERY_LIMIT, low_battery_message
 from .titles import DEFAULT_MODEL, TitleGenerator
 
 
@@ -49,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="省電力モード: 使う CPU を半分にし、1 枚ごとに休みながら処理する（時間はかかる）",
     )
     p.add_argument("--rest", type=float, help="1 枚ごとに休む秒数 (既定: 0 / --eco 時 3)")
+    p.add_argument(
+        "--battery-limit", type=int, default=DEFAULT_BATTERY_LIMIT,
+        help=f"電源につながずバッテリー残量がこの %% 以下になったら一時停止する (既定 {DEFAULT_BATTERY_LIMIT}、0 で無効)",
+    )
     p.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR, help="顔認識モデルの保存先")
     return p
 
@@ -111,11 +116,12 @@ def main(argv: list[str] | None = None) -> int:
     records = organize(
         args.input, args.output, matcher, titler,
         move=args.move, dry_run=args.dry_run, workers=workers, rest=rest,
+        stop_check=lambda: low_battery_message(args.battery_limit),
     )
 
     months = sorted({r.taken.strftime("%Y-%m") for r in records})
     action = "（お試し実行のため保存していません）" if args.dry_run else ""
-    print(f"\n完了: {len(records)} 枚を {len(months)} か月分のフォルダに整理しました{action}")
+    print(f"\n今回 {len(records)} 枚を {len(months)} か月分のフォルダに整理しました{action}")
     for m in months:
         print(f"  {m}: {sum(r.taken.strftime('%Y-%m') == m for r in records)} 枚")
     return 0
