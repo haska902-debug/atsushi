@@ -109,6 +109,49 @@ def install_requirements() -> bool:
     return result.returncode == 0
 
 
+SHORTCUT_NAME = "写真整理"
+
+# デスクトップの場所（OneDrive に移されている場合も含む）を調べ、ショートカットを作る。
+# 文字化けを避けるため、日本語や場所は環境変数で受け渡す。
+SHORTCUT_SCRIPT = (
+    "$desktop = [Environment]::GetFolderPath('Desktop');"
+    "$path = Join-Path $desktop ($env:PO_NAME + '.lnk');"
+    "$existed = Test-Path $path;"
+    "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($path);"
+    "$s.TargetPath = $env:PO_TARGET;"
+    "$s.WorkingDirectory = $env:PO_DIR;"
+    "$s.IconLocation = $env:PO_ICON;"
+    "$s.Description = $env:PO_DESC;"
+    "$s.Save();"
+    "Write-Output $existed"
+)
+
+
+def create_desktop_shortcut() -> None:
+    """デスクトップに起動用ショートカットを作る（Windows のみ）。
+
+    アプリのフォルダを移動しても次回の実行で作り直されるよう、毎回上書きする。
+    """
+    if not IS_WINDOWS:
+        return
+    env = {
+        **os.environ,
+        "PO_NAME": SHORTCUT_NAME,
+        "PO_TARGET": str(HERE / "start_windows.bat"),
+        "PO_DIR": str(HERE),
+        "PO_ICON": str(HERE / "icon.ico"),
+        "PO_DESC": "同じ人物の写真を月別フォルダに整理します",
+    }
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", SHORTCUT_SCRIPT],
+        env=env, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print("デスクトップのショートカットを作れませんでした（整理には影響ありません）。")
+    elif "True" not in result.stdout:
+        print(f"デスクトップに「{SHORTCUT_NAME}」のショートカットを作りました。次回からはそれをダブルクリックしてください。")
+
+
 # ---------- 4. 写真の整理 ----------
 
 def choose_folder(title: str, must_exist: bool = True) -> Path | None:
@@ -170,6 +213,7 @@ def main() -> int:
     if not install_requirements():
         print("部品のインストールに失敗しました。上に表示されたエラーを確認してください。")
         return 1
+    create_desktop_shortcut()
 
     step(4, "写真の整理")
     photos = choose_folder("整理したい写真が入っているフォルダを選んでください")
