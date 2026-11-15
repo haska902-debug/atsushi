@@ -31,10 +31,13 @@ class LocalTitleGenerator:
         model: str = DEFAULT_LOCAL_MODEL,
         url: str = DEFAULT_OLLAMA_URL,
         timeout: float = 600,
+        num_thread: int | None = None,
     ):
         self.model = model
         self.url = url.rstrip("/")
         self.timeout = timeout
+        # AI が使う CPU のコア数。少なくするとパソコンの負荷と消費電力が下がる
+        self.num_thread = num_thread
 
     def _request(self, path: str, payload: dict | None = None) -> dict:
         data = json.dumps(payload).encode() if payload is not None else None
@@ -65,11 +68,14 @@ class LocalTitleGenerator:
 
     def generate(self, image: Image.Image) -> TitleResult | None:
         """タイトルを生成する。解析失敗時は None。"""
+        options = {"temperature": 0.2}
+        if self.num_thread:
+            options["num_thread"] = self.num_thread
         response = self._request("/api/chat", {
             "model": self.model,
             "stream": False,
             "format": OUTPUT_SCHEMA,
-            "options": {"temperature": 0.2},
+            "options": options,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {

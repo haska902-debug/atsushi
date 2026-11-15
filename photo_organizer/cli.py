@@ -7,6 +7,8 @@ import os
 import sys
 from pathlib import Path
 
+import cv2
+
 from .faces import DEFAULT_MODEL_DIR, DEFAULT_THRESHOLD, FaceMatcher
 from .images import IMAGE_EXTENSIONS, find_images, load_image
 from .local_titles import DEFAULT_LOCAL_MODEL, DEFAULT_OLLAMA_URL, LocalTitleGenerator, OllamaError
@@ -42,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL, help=f"Ollama の URL (既定 {DEFAULT_OLLAMA_URL})")
     p.add_argument("--workers", type=int, help="タイトル作成の同時実行数 (既定: 通常 4 / --free 時 1)")
+    p.add_argument(
+        "--eco", action="store_true",
+        help="省電力モード: 使う CPU を半分にし、1 枚ごとに休みながら処理する（時間はかかる）",
+    )
+    p.add_argument("--rest", type=float, help="1 枚ごとに休む秒数 (既定: 0 / --eco 時 3)")
     p.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR, help="顔認識モデルの保存先")
     return p
 
@@ -66,11 +73,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     titler = None
-    workers = args.workers or (1 if args.free else 4)
+    workers = args.workers or (1 if args.free or args.eco else 4)
+    rest = args.rest if args.rest is not None else (3.0 if args.eco else 0.0)
+    eco_threads = max(1, (os.cpu_count() or 2) // 2) if args.eco else None
+    if eco_threads:
+        cv2.setNumThreads(eco_threads)
+        print(f"省電力モード: CPU {eco_threads} コアだけを使い、1 枚ごとに {rest:g} 秒休みます")
     if args.no_title:
         pass
     elif args.free:
-        titler = LocalTitleGenerator(model=args.model or DEFAULT_LOCAL_MODEL, url=args.ollama_url)
+        titler = LocalTitleGenerator(
+            model=args.model or DEFAULT_LOCAL_MODEL, url=args.ollama_url, num_thread=eco_threads
+        )
         try:
             titler.check()
         except OllamaError as e:
@@ -96,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
 
     records = organize(
         args.input, args.output, matcher, titler,
-        move=args.move, dry_run=args.dry_run, workers=workers,
+        move=args.move, dry_run=args.dry_run, workers=workers, rest=rest,
     )
 
     months = sorted({r.taken.strftime("%Y-%m") for r in records})

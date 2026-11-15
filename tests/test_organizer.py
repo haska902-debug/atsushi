@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 import anthropic
+import pytest
 import httpx2 as httpx
 from PIL import Image
 
@@ -94,7 +95,8 @@ def test_output_inside_input_is_not_rescanned(tmp_path):
     make_photo(src / "1.jpg", "red", "2024:01:02 03:04:05")
     organize(src, out, ColorMatcher(), None, log=lambda _: None)
     records = organize(src, out, ColorMatcher(), None, log=lambda _: None)
-    assert [r.source.name for r in records] == ["1.jpg"]
+    assert records == []  # 整理済みなので二重に保存しない
+    assert len(list(out.rglob("*.jpg"))) == 1
 
 
 def fake_client(handler) -> anthropic.Anthropic:
@@ -135,3 +137,34 @@ def test_title_generator_request_and_parse():
 def test_title_generator_refusal_returns_none():
     gen = TitleGenerator(client=fake_client(lambda r: api_response("", "refusal")))
     assert gen.generate(Image.new("RGB", (10, 10))) is None
+
+
+class CrashingTitler:
+    """2 枚目で電源が落ちたことを真似るタイトル作成器。"""
+
+    def __init__(self):
+        self.calls = 0
+
+    def generate(self, image):
+        self.calls += 1
+        if self.calls == 2:
+            raise KeyboardInterrupt  # 例外処理で拾われない停止
+        return TitleResult(title="散歩", description="")
+
+
+def test_resume_after_interruption(tmp_path):
+    src, out = tmp_path / "in", tmp_path / "out"
+    for i in range(3):
+        make_photo(src / f"{i}.jpg", "red", f"2024:01:0{i + 1} 10:00:00")
+
+    with pytest.raises(KeyboardInterrupt):
+        organize(src, out, ColorMatcher(), CrashingTitler(), workers=1, log=lambda _: None)
+    assert len(list(out.rglob("*.jpg"))) == 1  # 1 枚目は止まる前に保存済み
+    assert not list(out.rglob("*.part"))
+
+    titler = FakeTitler()
+    records = organize(src, out, ColorMatcher(), titler, workers=1, log=lambda _: None)
+    assert sorted(r.source.name for r in records) == ["1.jpg", "2.jpg"]
+    assert len(list(out.rglob("*.jpg"))) == 3
+    index = (out / INDEX_FILENAME).read_text(encoding="utf-8-sig")
+    assert index.count("撮影日時") == 1 and len(index.strip().splitlines()) == 4

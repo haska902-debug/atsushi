@@ -223,7 +223,8 @@ def main() -> int:
         print("フォルダが選ばれなかったので終了します。")
         return 1
 
-    args = [str(photos), str(output), "--ref", str(ref), "--free"]
+    # 電源が不安定なパソコンでも止まりにくいよう、省電力モードで動かす
+    args = [str(photos), str(output), "--ref", str(ref), "--free", "--eco"]
     print("\nまず、保存せずに同じ人物の写真がどれかを確認します（お試し実行・タイトルなし）。\n")
     if run_organizer([*args, "--dry-run", "--no-title"]) != 0:
         return 1
@@ -232,7 +233,8 @@ def main() -> int:
         print("保存せずに終了しました。")
         print("別人が混ざる・取りこぼしが多いときは、参照写真を増やすと精度が上がります。")
         return 0
-    print("\nAI がタイトルを考えながら保存します（1 枚あたり数秒〜十数秒かかります）...\n")
+    print("\nAI がタイトルを考えながら 1 枚ずつ保存します（省電力モードのため 1 枚あたり十数秒かかります）。")
+    print("途中で止まったり電源が切れたりしても、もう一度実行すれば続きから再開します。\n")
     code = run_organizer(args)
     if code == 0:
         print(f"\n完了しました。保存先: {output}")

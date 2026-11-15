@@ -62,3 +62,9 @@ def test_missing_model_message(fake_ollama):
 def test_ollama_not_running():
     with pytest.raises(OllamaError, match="起動してください"):
         LocalTitleGenerator(url="http://127.0.0.1:9").check()
+
+
+def test_eco_mode_limits_threads(fake_ollama):
+    url, received = fake_ollama
+    LocalTitleGenerator(url=url, num_thread=2).generate(Image.new("RGB", (10, 10)))
+    assert received["body"]["options"]["num_thread"] == 2
